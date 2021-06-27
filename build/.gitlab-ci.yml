@@ -1,0 +1,76 @@
+image: woohuiren/php-laravel-env:latest
+
+services:
+  - mysql:5.7
+
+before_script:
+  # For more information, view https://docs.gitlab.com/ce/ci/ssh_keys/README.html
+  # install ssh-agent
+  - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+  # run ssh-agent
+  - eval $(ssh-agent -s)
+  # add ssh key stored in SSH_PRIVATE_KEY variable to the agent store
+  - ssh-add <(echo "$SSH_PRIVATE_KEY")
+  - echo "$SSH_PRIVATE_KEY" > ssh.priv
+  - chmod 600 ssh.priv
+  - cat ssh.priv
+  # disable host key checking (NOTE: makes you susceptible to man-in-the-middle attacks)
+  # WARNING: use only in docker container, if you use it with shell you will overwrite your user's ssh config
+  - mkdir -p ~/.ssh
+  - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+
+variables:
+  MYSQL_DATABASE: laravel
+  MYSQL_ROOT_PASSWORD: secret
+  SSH_PRIVATE_KEY: kSEFxPEEx2D5TxKfhB5t # Recommended to put into GitLab secret variables instead
+  GIT_DEPLOYMENT_URL: git@gitlab.com:fauzipadlaw/pemesanan.git # Used for PUSH deployments
+  GIT_DEPLOYMENT_REMOTE: staging # Used for PUSH and PULL deployments
+  GIT_DEPLOYMENT_BRANCH: master # Used for PUSH and PULL deployments
+  STAGING_SERVER_HOSTNAME: admin@localhost # Used for PULL deployments
+  STAGING_SERVER_DIRECTORY: /home/admin/pemesanan/public # Used for PULL deployments
+
+stages:
+  - build
+  - test
+#  - staging_deploy
+  - heroku_deploy
+
+build_job:
+  stage: build
+  script:
+    - sh .gitlab-build.sh
+  artifacts:
+    paths:
+      - vendor/
+      - bootstrap/
+      - composer.phar
+      - .env
+  tags:
+    - docker
+
+test_job:
+  stage: test
+  dependencies:
+    - build_job
+  script:
+    - sh .gitlab-test.sh
+  tags:
+    - docker
+
+#stage_job:
+#  stage: staging_deploy
+#  script:
+#    - sh .gitlab-staging-deploy.sh # Change this to .gitlab-staging-pull-deploy.sh for PULL deployments
+#  environment:
+#    name: staging
+#  only:
+#    - develop
+
+heroku_deploy:
+  stage: heroku_deploy
+  script:
+    - sh .heroku-deploy.sh # push to heroku
+  environment:
+    name: staging
+  only:
+    - master
